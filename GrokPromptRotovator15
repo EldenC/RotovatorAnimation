@@ -1,0 +1,82 @@
+Write an animated 2D physics simulation web page that shows the orbit of the Moon around the Earth from above the North pole on a black background.  The animation can be zoomed in and out via the mouse wheel.  The top of the animation is pointed to the Sun.  To make the Earth, and the Moon’s rotation visible, add lines of latitude and longitude to each.  On the Earth draw somewhat simplified green continents and make the Earth’s ocean’s dark Blue.  Put a Yellow dot on the equator approximating the position of Boca Chica and Cape Canaveral.  The objective of this animation is to show how a rotovator sky hook works and roughly estimate the types of rocket launches the Rotovator could assist with. Set the default view such that the orbit of the rotovator around the Earth fills the screen. Make the animation fill the entire screen; put any text, sliders, and menu items as over lays.
+
+From the center of the Earth draw:
+    a gray line to the Moon.  
+    an  orange  arrow toward Mars 
+    a yellow arrow toward the Sun.  
+
+Orbiting the Earth is a Rotovator sky hook with a SpaceX Starship Upper Stage on each end.  The Rotovator’s orbit is about the equator of the Earth.  Label the ends of the Rotovator as “A” and “B”. Represent points “A” and “B” as caricature of the Starship Upper stage oriented 90 to the line AB.
+     Add “M” whose position is the midpoint between “A” and “B”.  
+     Add “Cm” at the center of mass between “A” and “B”.  
+     Add “D” to the Rotovator whose position on line segment “A” to “B” is controlled by a slider such that 0 is at “M” and +(radius of the arm slider value) is at “A” and -(radius of the arm slider value) is at “B”.
+Include sliders to control:  
+           The altitude “M” from 150km to 4000km (logarithmic), default to 550km.
+           The rotational RPM from 0.01 to 4 rpm (logarithmic), default to to 0.18 rpm.
+           The radius of the arm from 10km to 1000km (logarithmic),  defaults to 150km.
+           The simulation speed multiplier from 0.001 to 1000 (logarithmic), defaults to 40.
+           The previously mentioned “D” slider defaults to 114 km.
+           The mass at “A” (logarithmic), ranging from 0.001 to 15000 metric tons, defaulting to 1300 tons.
+           The mass at “B” (logarithmic), ranging from 0.001 to 15000 metric tons, defaulting to 1300 tons.
+
+Include a Pause button, a Forward button, and Reverse button that will move time by the time specified in two text boxes that show minutes and hours. The minute textbox defaults to 0.1 and the hours default to 0.   Put the simulation time and date in the upper left hand corner of the animation. 
+
+Add selector to choose the zoom center:
+       the Earth, 
+       the Rotovator (the Default), 
+       the Moon, 
+       the midpoint between the Earth and Moon, 
+
+Add a toggle button labeled “Orbits” when clicked to the on state, it will bring up a table with separate check boxes to turn on/off visualization of:
+   Orbit LLEO, 7.87km/s at 65.3 km.
+   Orbit ISS, 7.67km/s at 400 km.
+   Orbit Hubble, 7.60km/s at 530 km.
+   Orbit Starlink, 7.59 km/s at 550 km.
+   Orbit Iridium, 7.47 km/s at 780 km.
+   Orbit GPS, 3.87 km/s at 20,200 km.
+   Orbit Geostationary, 3.08 km/s at 35,786 km.
+   Orbit Moon, 1.01km/s at 384,400 km.
+   Trajectory “A” release. 
+   Trajectory “B” release.
+   Trajectory “D” release.
+   Info “A”. 
+   Info “B”.
+   Info “Cm”.
+   Info “D”.
+   
+The overall table will have buttons:
+     ‘Close’ button to hide the table.  
+     ‘All’ button which will check and make visible all of the orbits and trajectories. 
+     ‘None’ button which will turn all of them off. 
+
+When visible, the table will be just under the time stamp.
+
+Each of these orbits and trajectories have a unique color that is also represented in the table as a square of that color.  Each of these orbits will have one dot of the same color at the correct velocity for it’s orbit. By default all of the visibilities are on.  Each “Info” table row will toggle the visibility of the Info text.  For the Trajectory table rows add columns:
+       “Orbits \n Count”, default 2.
+       “Minutes/ \n Arrow”, default 30.
+When the trajectory is an orbit around Earth, “Orbits Count” will limit the number of orbits displayed.
+
+Have a numerical “Info” display showing the characteristics of “A”, “B”, and “D” including: 
+         The radial G force induced by the rotation.
+         The sum of the Earths G force and the radial G force. 
+         The altitude above the Earth’s surface. 
+         The velocity with respect to the Rotovator’s centroid. 
+         The velocity with respect to the Earth.
+         The velocity with respect to the Moon.
+
+Have a numerical “Info” display showing the characteristics of the Rotovator’s centroid “Cm” including: 
+        The orbital velocity.
+        The tensile force in Mega Newtons in the direction of “A” with respect to the slider mass.
+
+For each of the trajectories “A” ,“B”,“D” in the table, when enabled, will show the trajectory on the animation that an un-powered Starship would take if released from the rotovator at that time.   Mark the direction of each trajectory with arrows pointing in the direction of travel.  Make the spacing between arrows on the trajectory lines spaced such that each arrow represents a flight time of “Arrow Minutes” from the table.
+If the trajectory collides with Earth, color the arrows red and place a red dot at the collision point; do not draw the remainder of the trajectory after the collision.  Label the red point with the horizontal and vertical velocity at the time of collision. If the trajectory will orbit the Earth without colliding with Earth, then color the arrows blue.  If the trajectory will escape the Earth’s orbit, then color the arrows  lime-green.
+
+When the page is loaded display arched text that says “Written by Grok and Elden Crom” that fades away in two seconds.
+
+======================= later =====================
+
+
+Add a table entry for visibility to launch a Booster and Starship from the Earth surface such that it will meet the point of the rotovator closest to the Earth every 600 seconds at the time that the Starship and Booster Hot stage (4.6km/s at 65.3 km altitude).
+
+Ship/Booster Hot staging is at about 4.6km/s at 65.3 km altitude.	
+
+The Startship/Booster launch can be from any location on Earth’s equator.
