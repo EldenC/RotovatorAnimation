@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Rotovator Sky Hook Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: black; }
+        canvas { display: block; }
+        .overlay { position: absolute; color: white; font-family: Arial; font-size: 14px; }
+        #time { top: 10px; left: 10px; }
+        #controls { bottom: 10px; left: 10px; }
+        #displays { top: 10px; right: 10px; background: rgba(0,0,0,0.5); padding: 5px; }
+        #orbitsTable { top: 50px; left: 10px; background: rgba(0,0,0,0.5); padding: 10px; display: none; }
+        #intro { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; color: white; animation: fade 2s forwards; }
+        @keyframes fade { to { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="time" class="overlay"></div>
+    <div id="controls" class="overlay">
+        Altitude C (km): <input type="range" id="h_c_slider" min="5.0106352941" max="8.2940496401" step="0.03" value="6.3099182782"><span id="h_c_val">550</span><br>
+        RPM: <input type="range" id="rpm_slider" min="-4.605170186" max="1.3862943611" step="0.06" value="-1.715970728"><span id="rpm_val">0.18</span><br>
+        Arm radius (km): <input type="range" id="r_arm_slider" min="2.302585093" max="6.907755279" step="0.05" value="5.0106352941"><span id="r_arm_val">150</span><br>
+        Sim speed mult: <input type="range" id="mult_slider" min="-6.907755279" max="6.907755279" step="0.14" value="3.6888794541"><span id="mult_val">40</span><br>
+        D (km): <input type="range" id="d_slider" min="-1000" max="1000" step="1" value="114"><span id="d_val">114</span><br>
+        Mass at A (t): <input type="range" id="m_a_slider" min="-6.907755279" max="9.6158054801" step="0.16" value="7.1708884785"><span id="m_a_val">1300</span><br>
+        <button id="pause">Pause</button>
+        <input type="text" id="hours" size="3" value="0"> hours
+        <input type="text" id="mins" size="3" value="0.1"> min
+        <button id="forward">Forward</button>
+        <button id="reverse">Reverse</button><br>
+        Zoom center: <select id="zoom_center">
+            <option value="rotovator" selected>Rotovator</option>
+            <option value="earth">Earth</option>
+            <option value="moon">Moon</option>
+            <option value="midpoint">Midpoint Earth-Moon</option>
+        </select><br>
+        <button id="orbits_toggle">Orbits</button>
+    </div>
+    <div id="displays" class="overlay"></div>
+    <div id="orbitsTable" class="overlay">
+        <table id="orbits_table"></table>
+        <button id="all">All</button>
+        <button id="none">None</button>
+        <button id="close">Close</button>
+    </div>
+    <div id="intro">Powered by Grok and Elden Crom</div>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const timeDiv = document.getElementById('time');
+        const displaysDiv = document.getElementById('displays');
+        const orbitsTableDiv = document.getElementById('orbitsTable');
+        const orbitsTable = document.getElementById('orbits_table');
+        const introDiv = document.getElementById('intro');
+
+        // Constants (in SI units)
+        const G = 6.67430e-11;
+        const M_earth = 5.972e24;
+        const GM_earth = G * M_earth;
+        const R_earth = 6371000;
+        const M_moon = 7.342e22;
+        const GM_moon = G * M_moon;
+        const R_moon = 1737000;
+        const D_moon = 384400000;
+        const sidereal_day = 86164;
+        const moon_period = 27.321661 * 86400;
+        const g0 = 9.81;
+        const arrow_length = D_moon / 10;
+        const mars_angle = Math.PI / 2 + 38 * Math.PI / 180; // Approximate to the right
+
+        // Simulation variables
+        let sim_time = 0;
+        let current_date = new Date('2025-08-30T00:00:00Z');
+        let paused = false;
+        let last_frame = performance.now();
+        let start_time = performance.now() / 1000;
+        let scale = 1;
+        let center = {x: 0, y: 0};
+        let visibility = {};
+
+        // Sliders and values
+        let h_c = 550 * 1000;
+        let rpm = 0.18;
+        let r_arm = 150 * 1000;
+        let mult = 40;
+        let d = 114 * 1000;
+        let m_a = 1300 * 1000; // kg
+        //const moon_pos = {x: D_moon * Math.cos(moon_angle), y: D_moon * Math.sin(moon_angle)};
+
+
+        // Orbits and trajectories
+        const orbits_list = [
+            {name: 'LLEO', h: 65.3*1000, v: 7870, color: '#ff0000'},
+            {name: 'ISS', h: 400*1000, v: 7670, color: '#00ff00'},
+            {name: 'Hubble', h: 530*1000, v: 7600, color: '#0000ff'},
+            {name: 'Starlink', h: 550*1000, v: 7590, color: '#ffff00'},
+            {name: 'Iridium', h: 780*1000, v: 7470, color: '#ff00ff'},
+            {name: 'GPS', h: 20200*1000, v: 3870, color: '#00ffff'},
+            {name: 'Geostationary', h: 35786*1000, v: 3080, color: '#ff8000'},
+            {name: 'Moon', h: 384400*1000, v: 1010, color: '#808080'},
+        ];
+        const trajectories_list = [
+            {name: 'A release', point: 'A', color: '#ffffff'},
+            {name: 'B release', point: 'B', color: '#cccccc'},
+            {name: 'D release', point: 'D', color: '#999999'},
+        ];
+
+        // Combine for table
+        const all_items = [...orbits_list.map(o => ({...o, type: 'orbit'})), ...trajectories_list.map(t => ({...t, type: 'trajectory'}))];
+
+        // Initialize visibility
+        all_items.forEach(item => visibility[item.name] = true);
+
+        // Build table
+        let tr = document.createElement('tr');
+        tr.innerHTML = '<th>Item</th><th>Color</th><th>Visible</th>';
+        orbitsTable.appendChild(tr);
+        all_items.forEach(item => {
+            tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item.name}</td><td style="color:${item.color}">${item.color}</td><td><input type="checkbox" data-name="${item.name}" checked></td>`;
+            orbitsTable.appendChild(tr);
+        });
+
+        // Continent outlines (rough simplified points, lat lon in degrees, northern hemisphere)
+        const continents = [
+            // North America
+            [
+                {lat: 80, lon: -60},
+                {lat: 70, lon: -140},
+                {lat: 50, lon: -130},
+                {lat: 30, lon: -120},
+                {lat: 20, lon: -100},
+                {lat: 30, lon: -75},
+                {lat: 50, lon: -60},
+                {lat: 70, lon: -50},
+                {lat: 80, lon: -60},
+            ],
+            // Europe
+            [
+                {lat: 70, lon: -10},
+                {lat: 60, lon: -5},
+                {lat: 40, lon: 5},
+                {lat: 35, lon: 30},
+                {lat: 50, lon: 40},
+                {lat: 60, lon: 30},
+                {lat: 70, lon: 20},
+                {lat: 70, lon: -10},
+            ],
+            // Asia
+            [
+                {lat: 70, lon: 40},
+                {lat: 80, lon: 100},
+                {lat: 70, lon: 160},
+                {lat: 50, lon: 140},
+                {lat: 30, lon: 120},
+                {lat: 20, lon: 70},
+                {lat: 40, lon: 50},
+                {lat: 70, lon: 40},
+            ],
+            // Africa North
+            [
+                {lat: 35, lon: -5},
+                {lat: 30, lon: 35},
+                {lat: 15, lon: 45},
+                {lat: 10, lon: 20},
+                {lat: 15, lon: -15},
+                {lat: 35, lon: -5},
+            ],
+            // Greenland
+            [
+                {lat: 80, lon: -40},
+                {lat: 75, lon: -60},
+                {lat: 70, lon: -50},
+                {lat: 70, lon: -20},
+                {lat: 75, lon: -20},
+                {lat: 80, lon: -40},
+            ]
+        ];
+
+        // Boca Chica and Cape Canaveral approx on equator long
+        const boca_lon = -97;
+        const cape_lon = -80.5;
+
+        // Setup event listeners
+        document.getElementById('pause').addEventListener('click', () => {
+            paused = !paused;
+            document.getElementById('pause').textContent = paused ? 'Resume' : 'Pause';
+        });
+        document.getElementById('forward').addEventListener('click', () => {
+            const h = parseFloat(document.getElementById('hours').value) || 0;
+            const m = parseFloat(document.getElementById('mins').value) || 0;
+            sim_time += h * 3600 + m * 60;
+        });
+        document.getElementById('reverse').addEventListener('click', () => {
+            const h = parseFloat(document.getElementById('hours').value) || 0;
+            const m = parseFloat(document.getElementById('mins').value) || 0;
+            sim_time -= h * 3600 + m * 60;
+        });
+        document.getElementById('orbits_toggle').addEventListener('click', () => {
+            orbitsTableDiv.style.display = orbitsTableDiv.style.display === 'none' ? 'block' : 'none';
+        });
+        document.getElementById('all').addEventListener('click', () => {
+            all_items.forEach(item => visibility[item.name] = true);
+            orbitsTable.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        });
+        document.getElementById('none').addEventListener('click', () => {
+            all_items.forEach(item => visibility[item.name] = false);
+            orbitsTable.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        });
+        document.getElementById('close').addEventListener('click', () => {
+            orbitsTableDiv.style.display = 'none';
+        });
+        orbitsTable.addEventListener('change', e => {
+            if (e.target.type === 'checkbox') {
+                visibility[e.target.dataset.name] = e.target.checked;
+            }
+        });
+
+        // Slider listeners
+        const sliders = {
+            h_c: {slider: document.getElementById('h_c_slider'), val: document.getElementById('h_c_val'), update: v => h_c = Math.exp(v) * 1000, format: v => Math.round(Math.exp(v)).toString()},
+            rpm: {slider: document.getElementById('rpm_slider'), val: document.getElementById('rpm_val'), update: v => rpm = Math.exp(v), format: v => Math.exp(v).toFixed(2)},
+            r_arm: {slider: document.getElementById('r_arm_slider'), val: document.getElementById('r_arm_val'), update: v => r_arm = Math.exp(v) * 1000, format: v => Math.round(Math.exp(v)).toString()},
+            mult: {slider: document.getElementById('mult_slider'), val: document.getElementById('mult_val'), update: v => mult = Math.exp(v), format: v => Math.exp(v).toFixed(3)},
+            m_a: {slider: document.getElementById('m_a_slider'), val: document.getElementById('m_a_val'), update: v => m_a = Math.exp(v) * 1000, format: v => Math.round(Math.exp(v)).toString()},
+            d: {slider: document.getElementById('d_slider'), val: document.getElementById('d_val'), update: v => d = parseFloat(v) * 1000, format: v => parseFloat(v).toFixed(0)},
+        };
+        Object.values(sliders).forEach(s => {
+            s.slider.addEventListener('input', e => {
+                const v = parseFloat(e.target.value);
+                s.update(v);
+                s.val.textContent = s.format(v);
+                if (s === sliders.r_arm) {
+                    sliders.d.slider.min = -Math.exp(v);
+                    sliders.d.slider.max = Math.exp(v);
+                    if (Math.abs(d / 1000) > Math.exp(v)) {
+                        d = Math.sign(d) * Math.exp(v) * 1000;
+                        sliders.d.slider.value = d / 1000;
+                        sliders.d.val.textContent = (d / 1000).toFixed(0);
+                    }
+                }
+            });
+        });
+
+        // Mouse wheel for zoom
+        canvas.addEventListener('wheel', e => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.1 : 0.909;
+            scale *= factor;
+        });
+
+        // Resize canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Function to compute trajectory
+        function computeTrajectory(pos, vel) {
+            const dt = 60; // s
+            const max_steps = 10000;
+            const points = [{x: pos.x, y: pos.y, vx: vel.x, vy: vel.y}];
+            const moon_angle = 2 * Math.PI * sim_time / moon_period;
+            const moon_pos = {x: D_moon * Math.cos(moon_angle), y: D_moon * Math.sin(moon_angle)};
+            let current_pos = {x: pos.x, y: pos.y};
+            let current_vel = {x: vel.x, y: vel.y};
+            let collided = false;
+            let escaped = false;
+            let collision_vel = null;
+            for (let step = 0; step < max_steps; step++) {
+                const r = Math.sqrt(current_pos.x**2 + current_pos.y**2);
+                if (r < R_earth) {
+                    collided = true;
+                    collision_vel = {vx: current_vel.x, vy: current_vel.y};
+                    break;
+                }
+                const rm = Math.sqrt((current_pos.x - moon_pos.x)**2 + (current_pos.y - moon_pos.y)**2);
+                if (r > 2 * D_moon) {
+                    escaped = true;
+                }
+                const acc_earth_x = -GM_earth * current_pos.x / r**3;
+                const acc_earth_y = -GM_earth * current_pos.y / r**3;
+                const acc_moon_x = -GM_moon * (current_pos.x - moon_pos.x) / rm**3;
+                const acc_moon_y = -GM_moon * (current_pos.y - moon_pos.y) / rm**3;
+                const acc_x = acc_earth_x + acc_moon_x;
+                const acc_y = acc_earth_y + acc_moon_y;
+                current_vel.x += acc_x * dt;
+                current_vel.y += acc_y * dt;
+                current_pos.x += current_vel.x * dt;
+                current_pos.y += current_vel.y * dt;
+                points.push({x: current_pos.x, y: current_pos.y, vx: current_vel.x, vy: current_vel.y});
+                if (escaped) break;
+            }
+            let color = escaped ? 'lime' : (collided ? 'red' : 'blue');
+            return {points, color, collided, collision_pos: collided ? points[points.length - 1] : null, collision_vel};
+        }
+
+        // Function to draw arrow
+        function drawArrow(from, to, size = 10) {
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const len = Math.sqrt(dx**2 + dy**2);
+            const udx = dx / len;
+            const udy = dy / len;
+            const head_x = to.x - size * udx;
+            const head_y = to.y - size * udy;
+            ctx.beginPath();
+            ctx.moveTo(to.x, to.y);
+            ctx.lineTo(head_x - size * udy / 2, head_y + size * udx / 2);
+            ctx.moveTo(to.x, to.y);
+            ctx.lineTo(head_x + size * udy / 2, head_y - size * udx / 2);
+            ctx.stroke();
+        }
+
+        // Arched text function
+        function drawArchedText(text, x, y, radius) {
+            ctx.save();
+            ctx.translate(x, y);
+            const angle = Math.PI / 2; // semi circle
+            const step = angle / (text.length - 1);
+            for (let i = 0; i < text.length; i++) {
+                ctx.save();
+                ctx.rotate(-angle / 2 + i * step);
+                ctx.translate(0, -radius);
+                ctx.rotate(Math.PI);
+                ctx.fillText(text[i], 0, 0);
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+
+        // Main animation loop
+        function animate(now) {
+            const delta = (now - last_frame) / 1000;
+            last_frame = now;
+            if (!paused) sim_time += delta * mult;
+            const date = new Date(current_date.getTime() + sim_time * 1000);
+            timeDiv.textContent = date.toUTCString();
+
+            // Compute positions
+            const moon_angle = 2 * Math.PI * sim_time / moon_period;
+            const moon_pos = {x: D_moon * Math.cos(moon_angle), y: D_moon * Math.sin(moon_angle)};
+            const moon_vel = {x: - (2 * Math.PI * D_moon / moon_period) * Math.sin(moon_angle), y: (2 * Math.PI * D_moon / moon_period) * Math.cos(moon_angle)};
+
+            const r_c = R_earth + h_c;
+            const omega_orb = Math.sqrt(GM_earth / r_c**3);
+            const theta_c = omega_orb * sim_time;
+            const pos_c = {x: r_c * Math.cos(theta_c), y: r_c * Math.sin(theta_c)};
+            const vel_c = {x: - r_c * omega_orb * Math.sin(theta_c), y: r_c * omega_orb * Math.cos(theta_c)};
+
+            const omega_rot = rpm * 2 * Math.PI / 60;
+            const theta_rot = omega_rot * sim_time;
+            const vec_x = r_arm * Math.cos(theta_rot);
+            const vec_y = r_arm * Math.sin(theta_rot);
+            const pos_a = {x: pos_c.x + vec_x, y: pos_c.y + vec_y};
+            const pos_b = {x: pos_c.x - vec_x, y: pos_c.y - vec_y};
+            const vel_rot_a = {x: - omega_rot * (pos_a.y - pos_c.y), y: omega_rot * (pos_a.x - pos_c.x)};
+            const vel_rot_b = {x: - omega_rot * (pos_b.y - pos_c.y), y: omega_rot * (pos_b.x - pos_c.x)};
+            const vel_a = {x: vel_c.x + vel_rot_a.x, y: vel_c.y + vel_rot_a.y};
+            const vel_b = {x: vel_c.x + vel_rot_b.x, y: vel_c.y + vel_rot_b.y};
+            const pos_d = {x: pos_c.x + (d / r_arm) * vec_x, y: pos_c.y + (d / r_arm) * vec_y};
+            const vel_rot_d = {x: - omega_rot * (pos_d.y - pos_c.y), y: omega_rot * (pos_d.x - pos_c.x)};
+            const vel_d = {x: vel_c.x + vel_rot_d.x, y: vel_c.y + vel_rot_d.y};
+
+            // Zoom center
+            const zoom_choice = document.getElementById('zoom_center').value;
+            if (zoom_choice === 'earth') center = {x: 0, y: 0};
+            else if (zoom_choice === 'moon') center = moon_pos;
+            else if (zoom_choice === 'midpoint') center = {x: moon_pos.x / 2, y: moon_pos.y / 2};
+            else center = pos_c;
+
+            // Clear canvas
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(scale, scale);
+            ctx.translate(-center.x, -center.y);
+
+            // Draw gray line to Moon
+            ctx.strokeStyle = 'gray';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(moon_pos.x, moon_pos.y);
+            ctx.stroke();
+
+            // Draw yellow arrow to Sun
+            //   ctx.strokeStyle = 'yellow';
+            //   ctx.beginPath();
+            //   ctx.moveTo(0, 0);
+            //   ctx.lineTo(0, arrow_length);
+            //   ctx.stroke();
+            //   drawArrow({x: 0, y: 0}, {x: 0, y: arrow_length});
+
+            // Draw orange arrow to Mars
+            ctx.strokeStyle = 'orange';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(arrow_length * Math.cos(mars_angle), arrow_length * Math.sin(mars_angle));
+            ctx.stroke();
+            drawArrow({x: 0, y: 0}, {x: arrow_length * Math.cos(mars_angle), y: arrow_length * Math.sin(mars_angle)});
+
+            // Draw Earth
+            const earth_rotation = 2 * Math.PI * sim_time / sidereal_day;
+            ctx.fillStyle = 'darkblue';
+            ctx.beginPath();
+            ctx.arc(0, 0, R_earth, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Draw continents
+            ctx.fillStyle = 'green';
+            continents.forEach(cont => {
+                ctx.beginPath();
+                cont.forEach((p, i) => {
+                    const lat_rad = p.lat * Math.PI / 180;
+                    const lon_rad = p.lon * Math.PI / 180 + earth_rotation;
+                    const r_proj = R_earth * Math.cos(lat_rad);
+                    const ex = r_proj * Math.cos(lon_rad);
+                    const ey = r_proj * Math.sin(lon_rad);
+                    if (i === 0) ctx.moveTo(ex, ey);
+                    else ctx.lineTo(ex, ey);
+                });
+                ctx.closePath();
+                ctx.fill();
+            });
+
+            // Draw lat long on Earth
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 1 / scale;
+            // Latitude
+            for (let l = 10; l < 90; l += 10) {
+                const r = R_earth * Math.cos(l * Math.PI / 180);
+                ctx.beginPath();
+                ctx.arc(0, 0, r, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+            // Longitude
+            for (let i = 0; i < 36; i++) {
+                const theta = (i * 10 * Math.PI / 180) + earth_rotation;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(R_earth * Math.cos(theta), R_earth * Math.sin(theta));
+                ctx.stroke();
+            }
+
+            // Yellow dots
+            // ctx.fillStyle = 'yellow';
+            // const boca_theta = (boca_lon * Math.PI / 180 + earth_rotation);
+            // const cape_theta = (cape_lon * Math.PI / 180 + earth_rotation);
+            // ctx.beginPath();
+            // ctx.arc(R_earth * Math.cos(boca_theta), R_earth * Math.sin(boca_theta), 100000, 0, 2 * Math.PI); // small
+            // ctx.fill();
+            // ctx.beginPath();
+            // ctx.arc(R_earth * Math.cos(cape_theta), R_earth * Math.sin(cape_theta), 100000, 0, 2 * Math.PI);
+            // ctx.fill();
+
+            // Draw Moon
+            ctx.fillStyle = 'gray';
+            ctx.beginPath();
+            ctx.arc(moon_pos.x, moon_pos.y, R_moon, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Lat long on Moon
+            const moon_facing = Math.atan2(moon_pos.y, moon_pos.x) + Math.PI;
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 1 / scale;
+            // Latitude
+            for (let l = 10; l < 90; l += 10) {
+                const r = R_moon * Math.cos(l * Math.PI / 180);
+                ctx.beginPath();
+                ctx.arc(moon_pos.x, moon_pos.y, r, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+            // Longitude
+            for (let i = 0; i < 36; i++) {
+                const theta = (i * 10 * Math.PI / 180) + moon_facing;
+                ctx.beginPath();
+                ctx.moveTo(moon_pos.x, moon_pos.y);
+                ctx.lineTo(moon_pos.x + R_moon * Math.cos(theta), moon_pos.y + R_moon * Math.sin(theta));
+                ctx.stroke();
+            }
+
+            // Draw Rotovator
+            ctx.strokeStyle = 'white';
+            ctx.beginPath();
+            ctx.moveTo(pos_a.x, pos_a.y);
+            ctx.lineTo(pos_b.x, pos_b.y);
+            ctx.stroke();
+
+            // Labels A, B, C, D
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 200000px Arial'; // large for km scale
+            ctx.fillText('A', pos_a.x, pos_a.y);
+            ctx.fillText('B', pos_b.x, pos_b.y);
+            ctx.fillText('C', pos_c.x, pos_c.y);
+            ctx.fillText('D', pos_d.x, pos_d.y);
+
+            // Draw Starships (simple triangles)
+            const ship_size = 50000; // 50km scale, adjust
+            ctx.fillStyle = 'silver';
+            // At A
+            const dir_a_x = (pos_a.x - pos_c.x) / r_arm;
+            const dir_a_y = (pos_a.y - pos_c.y) / r_arm;
+            const perp_a_x = -dir_a_y;
+            const perp_a_y = dir_a_x;
+            ctx.beginPath();
+            ctx.moveTo(pos_a.x + ship_size * dir_a_x, pos_a.y + ship_size * dir_a_y);
+            ctx.lineTo(pos_a.x - ship_size / 2 * perp_a_x, pos_a.y - ship_size / 2 * perp_a_y);
+            ctx.lineTo(pos_a.x + ship_size / 2 * perp_a_x, pos_a.y + ship_size / 2 * perp_a_y);
+            ctx.closePath();
+            ctx.fill();
+            // At B
+            const dir_b_x = (pos_b.x - pos_c.x) / r_arm;
+            const dir_b_y = (pos_b.y - pos_c.y) / r_arm;
+            const perp_b_x = -dir_b_y;
+            const perp_b_y = dir_b_x;
+            ctx.beginPath();
+            ctx.moveTo(pos_b.x + ship_size * dir_b_x, pos_b.y + ship_size * dir_b_y);
+            ctx.lineTo(pos_b.x - ship_size / 2 * perp_b_x, pos_b.y - ship_size / 2 * perp_b_y);
+            ctx.lineTo(pos_b.x + ship_size / 2 * perp_b_x, pos_b.y + ship_size / 2 * perp_b_y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw orbits if visible
+            orbits_list.forEach(orb => {
+                if (visibility[orb.name]) {
+                    const r = R_earth + orb.h;
+                    ctx.strokeStyle = orb.color;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, r, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    const omega = Math.sqrt(GM_earth / r**3);
+                    const theta = omega * sim_time;
+                    const dot_x = r * Math.cos(theta);
+                    const dot_y = r * Math.sin(theta);
+                    ctx.fillStyle = orb.color;
+                    ctx.beginPath();
+                    ctx.arc(dot_x, dot_y, 100000, 0, 2 * Math.PI); // small dot
+                    ctx.fill();
+                }
+            });
+
+            // Draw trajectories if visible
+            trajectories_list.forEach(traj => {
+                if (visibility[traj.name]) {
+                    let release_pos, release_vel;
+                    if (traj.point === 'A') { release_pos = pos_a; release_vel = vel_a; }
+                    else if (traj.point === 'B') { release_pos = pos_b; release_vel = vel_b; }
+                    else { release_pos = pos_d; release_vel = vel_d; }
+                    const traj_data = computeTrajectory(release_pos, release_vel);
+                    ctx.strokeStyle = traj_data.color;
+                    ctx.beginPath();
+                    ctx.moveTo(traj_data.points[0].x, traj_data.points[0].y);
+                    for (let p of traj_data.points) {
+                        ctx.lineTo(p.x, p.y);
+                    }
+                    ctx.stroke();
+
+                    // Draw 40 arrows
+                    const num_arrows = 40;
+                    const step = Math.floor((traj_data.points.length - 1) / num_arrows);
+                    if (step > 0) {
+                        for (let j = 1; j <= num_arrows; j++) {
+                            const idx = j * step;
+                            if (idx >= traj_data.points.length - 1) break;
+                            const from = traj_data.points[idx];
+                            const to = {x: from.x + (traj_data.points[idx+1].x - from.x) / 2, y: from.y + (traj_data.points[idx+1].y - from.y) / 2}; // mid
+                            ctx.strokeStyle = traj_data.color;
+                            drawArrow(from, to, 10 / scale); // adjust size
+                        }
+                    }
+
+                    if (traj_data.collided) {
+                        ctx.fillStyle = 'red';
+                        ctx.beginPath();
+                        ctx.arc(traj_data.collision_pos.x, traj_data.collision_pos.y, 200000, 0, 2 * Math.PI);
+                        ctx.fill();
+                        ctx.fillStyle = 'white';
+                        ctx.font = '200000px Arial';
+                        const vh = (traj_data.collision_vel.vx / 1000).toFixed(2);
+                        const vv = (traj_data.collision_vel.vy / 1000).toFixed(2);
+                        ctx.fillText(`H: ${vh} km/s, V: ${vv} km/s`, traj_data.collision_pos.x, traj_data.collision_pos.y - 200000);
+                    }
+                }
+            });
+
+            ctx.restore();
+
+            // Arched text if <2s
+            const elapsed = (now / 1000) - start_time;
+            if (elapsed < 2) {
+                ctx.save();
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.fillStyle = 'white';
+                ctx.font = '30px Arial';
+                drawArchedText('Powered by Grok and Elden Crom', 0, 0, 200);
+                ctx.restore();
+            } else {
+                introDiv.style.display = 'none';
+            }
+
+            // Update displays
+            const points = {A: {pos: pos_a, vel_rot: vel_rot_a, vel: vel_a, dist: r_arm},
+                            B: {pos: pos_b, vel_rot: vel_rot_b, vel: vel_b, dist: r_arm},
+                            D: {pos: pos_d, vel_rot: vel_rot_d, vel: vel_d, dist: Math.abs(d)}};
+            let abd_html = '<b>A, B, D Characteristics:</b><br>';
+            ['A', 'B', 'D'].forEach(p => {
+                const point = points[p];
+                const r = Math.sqrt(point.pos.x**2 + point.pos.y**2);
+                const radial_g = (omega_rot**2 * point.dist) / g0;
+                const earth_g = (GM_earth / r**2) / g0;
+                const total_g = radial_g + earth_g; // sum magnitudes
+                const alt = (r - R_earth) / 1000;
+                const v_wrt_c = Math.sqrt(point.vel_rot.x**2 + point.vel_rot.y**2) / 1000;
+                const v_wrt_earth = Math.sqrt(point.vel.x**2 + point.vel.y**2) / 1000;
+                const v_wrt_moon = Math.sqrt((point.vel.x - moon_vel.x)**2 + (point.vel.y - moon_vel.y)**2) / 1000;
+                abd_html += `<br><b>${p}:</b><br>Radial G: ${radial_g.toFixed(2)}<br>Total G: ${total_g.toFixed(2)}<br>Altitude: ${alt.toFixed(0)} km<br>V wrt C: ${v_wrt_c.toFixed(2)} km/s<br>V wrt Earth: ${v_wrt_earth.toFixed(2)} km/s<br>V wrt Moon: ${v_wrt_moon.toFixed(2)} km/s`;
+            });
+            const orb_v = Math.sqrt(GM_earth / r_c**3) * r_c / 1000;
+            const tensile = (m_a * omega_rot**2 * r_arm) / 1e6; // MN
+            const c_html = `<br><b>C Characteristics:</b><br>Orbital V: ${orb_v.toFixed(2)} km/s<br>Tensile Force to A: ${tensile.toFixed(2)} MN`;
+            displaysDiv.innerHTML = abd_html + c_html;
+
+            // Default view if first frame
+            if (scale === 1) {
+                const view_radius = r_c + r_arm;
+                scale = Math.min(canvas.width, canvas.height) / (2 * view_radius * 1.1);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
