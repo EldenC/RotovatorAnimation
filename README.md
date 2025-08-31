@@ -12,6 +12,7 @@ You can run the simulation by clicking on the link
 [2D Rotovator](https://eldenc.github.io/RotovatorAnimation/rotovator016.html)
 
 https://eldenc.github.io/RotovatorAnimation/rotovator016.html
+link to this page https://github.com/EldenC/RotovatorAnimation/tree/main
 
 <img width="2469" height="1487" alt="image" src="https://github.com/user-attachments/assets/6453fe1c-0053-4b8b-aba9-3310f135c9d0" />
 
