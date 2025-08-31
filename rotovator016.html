@@ -20,8 +20,8 @@
     <canvas id="canvas"></canvas>
     <div id="time" class="overlay"></div>
     <div id="controls" class="overlay">
-        Altitude M (km): <input type="range" id="h_m_slider" min="5.0106352941" max="8.2940496401" step="0.03" value="6.3099182782"><span id="h_m_val">550</span><br>
-        RPM: <input type="range" id="rpm_slider" min="-4.605170186" max="1.3862943611" step="0.06" value="-1.715970728"><span id="rpm_val">0.18</span><br>
+        Altitude M (km): <input type="range" id="h_m_slider" min="5.0106352941" max="8.2940496401" step="0.03" value="5.3936275464"><span id="h_m_val">220</span><br>
+        RPM: <input type="range" id="rpm_slider" min="-4.605170186" max="0.0" step="0.06" value="-1.70"><span id="rpm_val">0.20</span><br>
         Arm radius (km): <input type="range" id="r_arm_slider" min="2.302585093" max="6.907755279" step="0.05" value="5.0106352941"><span id="r_arm_val">150</span><br>
         Sim speed mult: <input type="range" id="mult_slider" min="-6.907755279" max="6.907755279" step="0.14" value="3.6888794541"><span id="mult_val">40</span><br>
         D (km): <input type="range" id="d_slider" min="-1000" max="1000" step="1" value="114"><span id="d_val">114</span><br>
@@ -86,8 +86,8 @@
         let info_overlays = [];
 
         // Sliders and values
-        let h_m = 550 * 1000;
-        let rpm = 0.18;
+        let h_m = 220 * 1000;
+        let rpm = 0.20;
         let r_arm = 150 * 1000;
         let mult = 40;
         let d = 114 * 1000;
@@ -96,8 +96,8 @@
 
         // Orbits, trajectories, info
         const orbits_list = [
-            {name: 'LLEO', h: 65.3*1000, v: 7870, color: '#ff0000'},
-            {name: 'ISS', h: 400*1000, v: 7670, color: '#00ff00'},
+            {name: 'LLEO', h: 65.3*1000, v: 7870, color: '#ff5000'},
+            {name: 'ISS', h: 400*1000, v: 7670, color: '#00ffff'},
             {name: 'Hubble', h: 530*1000, v: 7600, color: '#0000ff'},
             {name: 'Starlink', h: 550*1000, v: 7590, color: '#ffff00'},
             {name: 'Iridium', h: 780*1000, v: 7470, color: '#ff00ff'},
@@ -119,21 +119,39 @@
         const all_items = [...orbits_list.map(o => ({...o, type: 'orbit'})), ...trajectories_list.map(t => ({...t, type: 'trajectory'})), ...info_list];
 
         // Initialize visibility
-        all_items.forEach(item => visibility[item.name] = true);
+        //all_items.forEach(item => visibility[item.name] = true);
+        all_items.forEach(item => visibility[item.name] = false);
+        visibility["LLEO"] = true;
+        visibility["ISS"] = true;
+        visibility["GPS"] = true;
+        visibility["Geostationary"] = true;
+        visibility["Moon"] = true;
+        visibility["A release"] = true;
+        visibility["B release"] = true;
+        visibility["D release"] = true;
 
         // Build table
         let tr = document.createElement('tr');
-        tr.innerHTML = '<th>Item</th><th>Color</th><th>Visible</th><th>Orbits <br> Count</th><th>Arrow <br> Minutes</th>';
+        tr.innerHTML = '<th>Item</th><th>Color</th><th>Visible</th><th>Orbits <br> Count</th><th>Minutes <br> per <br>  Arrow </th>';
         orbitsTable.appendChild(tr);
         all_items.forEach(item => {
             tr = document.createElement('tr');
             let color_td = item.color ? `<td><div class="color-square" style="background:${item.color};"></div></td>` : '<td></td>';
-            let visible_td = `<td><input type="checkbox" data-name="${item.name}" checked></td>`;
-            let orbits_td = item.type === 'trajectory' ? `<td><input type="text" id="orbits_${item.name}" value="4" size="3"></td>` : '<td></td>';
-            let arrow_td = item.type === 'trajectory' ? `<td><input type="text" id="arrow_${item.name}" value="10" size="3"></td>` : '<td></td>';
+            //let visible_td = `<td><input type="checkbox" data-name="${item.name}" checked></td>`;
+            let visible_td = `<td><input type="checkbox" data-name="${item.name}" ${visibility[item.name] ? 'checked' : ''}></td>`;
+            let orbits_td = item.type === 'trajectory' ? `<td><input type="text" id="orbits_${item.name}" value="1" size="3"></td>` : '<td></td>';
+            let arrow_td = item.type === 'trajectory' ? `<td><input type="text" id="arrow_${item.name}" value="20" size="3"></td>` : '<td></td>';
             tr.innerHTML = `<td>${item.name}</td>${color_td}${visible_td}${orbits_td}${arrow_td}`;
             orbitsTable.appendChild(tr);
         });
+        //visibility["LLEO"].visible_td = true;
+        //item => visibility["ISS"] = true;
+        //item => visibility["Geostationary"] = true;
+        //item => visibility["Moon"] = true;
+        //item => visibility["A release"] = true;
+        //item => visibility["B release"] = true;
+        //item => visibility["D release"] = true;
+
 
         // Continents same as before
         const continents = [
@@ -224,6 +242,7 @@
                 visibility[e.target.dataset.name] = e.target.checked;
             }
         });
+        orbitsTableDiv.style.display = 'block';
 
         // Sliders
         const sliders = {
@@ -574,7 +593,7 @@
                     const dot_y = r * Math.sin(theta);
                     ctx.fillStyle = orb.color;
                     ctx.beginPath();
-                    ctx.arc(dot_x, dot_y, 100000, 0, 2 * Math.PI);
+                    ctx.arc(dot_x, dot_y, 20000, 0, 2 * Math.PI);
                     ctx.fill();
                 }
             });
@@ -621,10 +640,10 @@
                     if (traj_data.collided) {
                         ctx.fillStyle = 'red';
                         ctx.beginPath();
-                        ctx.arc(traj_data.collision_pos.x, traj_data.collision_pos.y, 200000, 0, 2 * Math.PI);
+                        ctx.arc(traj_data.collision_pos.x, traj_data.collision_pos.y, 20000, 0, 2 * Math.PI);
                         ctx.fill();
                         ctx.fillStyle = 'white';
-                        ctx.font = '200000px Arial';
+                        ctx.font = '2000000000px Arial';
                         const vh = (traj_data.collision_vel.vx / 1000).toFixed(2);
                         const vv = (traj_data.collision_vel.vy / 1000).toFixed(2);
                         ctx.fillText(`H: ${vh} km/s, V: ${vv} km/s`, traj_data.collision_pos.x, traj_data.collision_pos.y - 200000);
